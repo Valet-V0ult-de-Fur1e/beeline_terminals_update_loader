@@ -12,10 +12,9 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QThread, Signal
 from model import *
-
+import datetime
 CONFIG_FILE = "config.json"
 HISTORY_FILE = "terminal_history.json"
-
 def ping_ip(ip, port=7777, timeout=3):
     try:
         with socket.create_connection((ip, port), timeout=timeout):
@@ -23,12 +22,10 @@ def ping_ip(ip, port=7777, timeout=3):
     except OSError:
         return False
     
-
-class MainConfigWorker:
+class FirmwareUpdateWorker:
     def __init__(self, terminal_data, config):
         self.terminal_data = terminal_data
         self.config = config
-        
     def run(self):
         host_name = self.terminal_data.get('Host name', 'Unknown')
         ip_main = self.terminal_data.get('IP № 1 (основной)', '')
@@ -37,6 +34,73 @@ class MainConfigWorker:
         password = self.terminal_data.get('Пароль', '')
         use_local_ip = self.terminal_data.get('use_local_ip', False)
         target_ip = ip_local if use_local_ip else ip_main
+        base_config = self.config.get('base_config', {})
+        system_package_path = base_config.get('system_package_file_path', '')
+        term_interface = TerminalInterface(
+            local_url=f"http://{target_ip}",
+            api_url="/api",
+            device_id=host_name,
+            terminal_login=terminal_login,
+            password=password,
+            log_dir=self.config.get('log_dir', './logs')
+        )
+        success = True
+        messages = []
+        try:
+            health_result = term_interface.check_health()
+            if health_result is None or (isinstance(health_result, dict) and 'error' in health_result):
+                 success = False
+                 messages.append(f"Health check failed: {health_result.get('error', 'Received error structure from health check')}")
+        except Exception as e:
+            success = False
+            messages.append(f"Health check error: {str(e)}")
+        if success:
+            try:
+                term_interface.set_password(password)
+            except Exception as e:
+                success = False
+                messages.append(f"Set password error: {str(e)}")
+            try:
+                login_result = term_interface.login()
+                if not login_result or not isinstance(login_result, dict) or 'access_token' not in login_result:
+                    success = False
+                    messages.append("Login failed or did not return access token")
+            except Exception as e:
+                success = False
+                messages.append(f"Login error: {str(e)}")
+            if success:
+                if system_package_path:
+                    try:
+                        install_success = term_interface.set_terminal_files(system_package_path)
+                        if not install_success:
+                            success = False
+                            messages.append("Package install failed")
+                    except Exception as e:
+                        success = False
+                        messages.append(f"Package install error: {str(e)}")
+                else:
+                    success = False
+                    messages.append("System package path is not configured")
+        if success:
+            final_status = "OK"
+        else:
+            final_status = f"Error: {'; '.join(messages)}"
+        if 'host_name' not in locals():
+             host_name = self.terminal_data.get('Host name', 'Unknown_Device')
+        return (host_name, final_status)
+
+class MainConfigWorker:
+    def __init__(self, terminal_data, config):
+        self.terminal_data = terminal_data
+        self.config = config
+    def run(self):
+        host_name = self.terminal_data.get('Host name', 'Unknown')
+        ip_main = self.terminal_data.get('IP № 1 (основной)', '')
+        ip_local = self.terminal_data.get('IP локальный', '')
+        terminal_login = self.terminal_data.get('Логин', '')
+        password = self.terminal_data.get('Пароль', '')
+        use_local_ip = self.terminal_data.get('use_local_ip', False)
+        target_ip = ip_local if use_local else ip_main
         base_config = self.config.get('base_config', {})
         logo_stand_by_path = base_config.get('logo_stand_by_file_path', '')
         logo_waiting_path = base_config.get('logo_file_path', '')
@@ -99,7 +163,6 @@ class MainConfigWorker:
             if open_vpn_cofiguration is None:
                 success = False
                 messages.append("OpenVPN configuration failed")
-        # Upload OpenVPN client certificate (is_ca=False)
         openvpn_client_cert_path = self.config.get('openvpn_client_cert_file', '')
         if openvpn_client_cert_path and os.path.isfile(openvpn_client_cert_path):
             try:
@@ -110,8 +173,6 @@ class MainConfigWorker:
             except Exception as e:
                 success = False
                 messages.append(f"OpenVPN client cert upload error: {str(e)}")
-
-        # Upload OpenVPN CRL
         openvpn_crl_path = self.config.get('openvpn_crl_file', '')
         if openvpn_crl_path and os.path.isfile(openvpn_crl_path):
             try:
@@ -129,7 +190,6 @@ class MainConfigWorker:
         if 'host_name' not in locals():
              host_name = self.terminal_data.get('Host name', 'Unknown_Device')
         return (host_name, final_status)
-    
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -147,7 +207,6 @@ class MainWindow(QMainWindow):
         self.setup_directories()
         self.setup_ui()
         self.load_config_into_ui()
-        
     def load_history(self):
         if os.path.exists(HISTORY_FILE):
             try:
@@ -156,14 +215,12 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 print(f"Error loading history: {e}")
         return {}
-    
     def save_history(self):
         try:
             with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
                 json.dump(self.history, f, ensure_ascii=False, indent=4)
         except Exception as e:
             print(f"Error saving history: {e}")
-            
     def load_config(self):
         defaults = {
             'use_local_ip': False,
@@ -207,19 +264,16 @@ class MainWindow(QMainWindow):
                 self.global_config = defaults
         else:
             self.global_config = defaults
-            
     def save_config(self):
         try:
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
                 json.dump(self.global_config, f, ensure_ascii=False, indent=4)
         except Exception as e:
             QMessageBox.warning(self, "Ошибка", f"Не удалось сохранить config.json: {e}")
-            
     def setup_directories(self):
         os.makedirs(self.global_config['csr_output_dir'], exist_ok=True)
         os.makedirs(self.global_config['log_dir'], exist_ok=True)
         os.makedirs(self.global_config['upload_cert_config']['certificates_dir'], exist_ok=True)
-        
     def setup_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
@@ -228,7 +282,7 @@ class MainWindow(QMainWindow):
         h_stage.addWidget(QLabel("Этап:"))
         self.stage_combo = QComboBox()
         self.stage_combo.addItems([
-            "health_check", "base_config", "request_cert", 
+            "health_check", "firmware_update", "base_config", "request_cert", 
             "upload_cert", "start_openvpn"
         ])
         self.stage_combo.currentTextChanged.connect(self.on_stage_changed)
@@ -278,27 +332,52 @@ class MainWindow(QMainWindow):
         layout.addWidget(QLabel("Логи:"))
         layout.addWidget(self.log_text)
         self.on_stage_changed()
-        
     def on_stage_changed(self):
         stage = self.stage_combo.currentText()
         stage_names = {
             "health_check": "Проверить связь",
+            "firmware_update": "Обновить прошивку",
             "base_config": "Указать настройки",
             "request_cert": "Запросить сертификат",
             "upload_cert": "Загрузить сертификат",
             "start_openvpn": "Запустить OpenVPN"
         }
         self.action_btn.setText(stage_names.get(stage, "Запустить"))
-        self.settings_btn.setVisible(stage == "base_config" or stage == "upload_cert")
+        self.settings_btn.setVisible(stage in ["firmware_update", "base_config", "upload_cert"])
         if self.terminals_df is not None:
             self.display_table()
-            
     def open_stage_settings(self):
         if self.stage_combo.currentText() == "base_config":
             self.open_base_config_settings()
         elif self.stage_combo.currentText() == "upload_cert":
             self.open_upload_cert_settings()
-            
+        elif self.stage_combo.currentText() == "firmware_update":
+            self.open_firmware_settings()
+    def open_firmware_settings(self):
+        from PySide6.QtWidgets import QDialog, QDialogButtonBox
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Настройки обновления прошивки")
+        dialog.resize(500, 150)
+        layout = QVBoxLayout(dialog)
+        firmware_form = QFormLayout()
+        self.system_package_le = QLineEdit()
+        btn_system_package = QPushButton("Обзор...")
+        btn_system_package.clicked.connect(lambda: self.select_file("base_config_system_package_file_path", self.system_package_le))
+        h_system_package = QHBoxLayout()
+        h_system_package.addWidget(self.system_package_le)
+        h_system_package.addWidget(btn_system_package)
+        firmware_form.addRow("Файл прошивки:", h_system_package)
+        layout.addLayout(firmware_form)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        self.system_package_le.setText(self.global_config.get('base_config', {}).get('system_package_file_path', ''))
+        if dialog.exec() == QDialog.Accepted:
+            base_config = self.global_config.get('base_config', {})
+            base_config['system_package_file_path'] = self.system_package_le.text()
+            self.global_config['base_config'] = base_config
+            self.save_config()
     def open_base_config_settings(self):
         from PySide6.QtWidgets import QDialog, QDialogButtonBox
         dialog = QDialog(self)
@@ -309,34 +388,22 @@ class MainWindow(QMainWindow):
         logo_form = QFormLayout()
         self.logo_standby_le = QLineEdit()
         btn_logo_standby = QPushButton("Обзор...")
-        btn_logo_standby.clicked.connect(lambda: self.select_file("logo_standby", self.logo_standby_le))
+        btn_logo_standby.clicked.connect(lambda: self.select_file("base_config_logo_stand_by_file_path", self.logo_standby_le))
         h_logo_standby = QHBoxLayout()
         h_logo_standby.addWidget(self.logo_standby_le)
         h_logo_standby.addWidget(btn_logo_standby)
         logo_form.addRow("Логотип standby:", h_logo_standby)
         self.logo_waiting_le = QLineEdit()
         btn_logo_waiting = QPushButton("Обзор...")
-        btn_logo_waiting.clicked.connect(lambda: self.select_file("logo_waiting", self.logo_waiting_le))
+        btn_logo_waiting.clicked.connect(lambda: self.select_file("base_config_logo_file_path", self.logo_waiting_le))
         h_logo_waiting = QHBoxLayout()
         h_logo_waiting.addWidget(self.logo_waiting_le)
         h_logo_waiting.addWidget(btn_logo_waiting)
         logo_form.addRow("Логотип ожидания:", h_logo_waiting)
         logo_group.setLayout(logo_form)
         layout.addWidget(logo_group)
-        firmware_group = QGroupBox("Настройки прошивки")
-        firmware_form = QFormLayout()
-        self.system_package_le = QLineEdit()
-        btn_system_package = QPushButton("Обзор...")
-        btn_system_package.clicked.connect(lambda: self.select_file("system_package", self.system_package_le))
-        h_system_package = QHBoxLayout()
-        h_system_package.addWidget(self.system_package_le)
-        h_system_package.addWidget(btn_system_package)
-        firmware_form.addRow("Файл прошивки:", h_system_package)
-        firmware_group.setLayout(firmware_form)
-        layout.addWidget(firmware_group)
         cert_group = QGroupBox("OpenVPN сертификаты и CRL")
         cert_form = QFormLayout()
-
         self.openvpn_client_cert_le = QLineEdit()
         btn_client_cert = QPushButton("Обзор...")
         btn_client_cert.clicked.connect(lambda: self.select_file("openvpn_client_cert_file", self.openvpn_client_cert_le))
@@ -344,8 +411,6 @@ class MainWindow(QMainWindow):
         h_client_cert.addWidget(self.openvpn_client_cert_le)
         h_client_cert.addWidget(btn_client_cert)
         cert_form.addRow("Сертификат Beeline (.crt):", h_client_cert)
-
-        # CRL файл
         self.openvpn_crl_le = QLineEdit()
         btn_crl = QPushButton("Обзор...")
         btn_crl.clicked.connect(lambda: self.select_file("openvpn_crl_file", self.openvpn_crl_le))
@@ -353,7 +418,6 @@ class MainWindow(QMainWindow):
         h_crl.addWidget(self.openvpn_crl_le)
         h_crl.addWidget(btn_crl)
         cert_form.addRow("Файл CRL (.pem):", h_crl)
-
         cert_group.setLayout(cert_form)
         layout.addWidget(cert_group)
         server_group = QGroupBox("Настройки серверов")
@@ -381,16 +445,16 @@ class MainWindow(QMainWindow):
         layout.addWidget(buttons)
         self.logo_standby_le.setText(self.global_config.get('base_config', {}).get('logo_stand_by_file_path', ''))
         self.logo_waiting_le.setText(self.global_config.get('base_config', {}).get('logo_file_path', ''))
-        self.system_package_le.setText(self.global_config.get('base_config', {}).get('system_package_file_path', ''))
         self.proto_combo_settings.setCurrentText(self.global_config.get('openvpn_protocol', 'tcp'))
         for addr in self.global_config.get('openvpn_addresses', []):
             self.add_server_row(addr['ip'], addr['port'])
+        self.openvpn_client_cert_le.setText(self.global_config.get('openvpn_client_cert_file', ''))
+        self.openvpn_crl_le.setText(self.global_config.get('openvpn_crl_file', ''))
         if dialog.exec() == QDialog.Accepted:
-            self.global_config['base_config'] = {
-                'logo_stand_by_file_path': self.logo_standby_le.text(),
-                'logo_file_path': self.logo_waiting_le.text(),
-                'system_package_file_path': self.system_package_le.text()
-            }
+            base_config = self.global_config.get('base_config', {})
+            base_config['logo_stand_by_file_path'] = self.logo_standby_le.text()
+            base_config['logo_file_path'] = self.logo_waiting_le.text()
+            self.global_config['base_config'] = base_config
             self.global_config['openvpn_protocol'] = self.proto_combo_settings.currentText()
             servers = []
             for i in range(self.server_layout.count()):
@@ -401,10 +465,9 @@ class MainWindow(QMainWindow):
                         'port': widget.port_sb.value()
                     })
             self.global_config['openvpn_addresses'] = servers
-            self.openvpn_client_cert_le.setText(self.global_config.get('openvpn_client_cert_file', ''))
-            self.openvpn_crl_le.setText(self.global_config.get('openvpn_crl_file', ''))
+            self.global_config['openvpn_client_cert_file'] = self.openvpn_client_cert_le.text()
+            self.global_config['openvpn_crl_file'] = self.openvpn_crl_le.text()
             self.save_config()
-            
     def open_upload_cert_settings(self):
         from PySide6.QtWidgets import QDialog, QDialogButtonBox
         dialog = QDialog(self)
@@ -433,7 +496,6 @@ class MainWindow(QMainWindow):
             }
             self.save_config()
             os.makedirs(self.global_config['upload_cert_config']['certificates_dir'], exist_ok=True)
-            
     def auto_fill_certificates(self):
         if self.terminals_df is None:
             return
@@ -452,7 +514,6 @@ class MainWindow(QMainWindow):
             if matched_file:
                 self.terminals_df.at[i, 'Клиентский сертификат (.crt)'] = matched_file
         self.display_table()
-        
     def add_server_row(self, ip='', port=1194):
         frame = QFrame()
         frame.setFrameStyle(QFrame.StyledPanel)
@@ -472,15 +533,15 @@ class MainWindow(QMainWindow):
         frame.ip_le = ip_le
         frame.port_sb = port_sb
         self.server_layout.insertWidget(self.server_layout.count()-2, frame)
-        
     def remove_server_row(self, frame):
         self.server_layout.removeWidget(frame)
         frame.deleteLater()
-        
     def execute_current_stage(self):
         stage = self.stage_combo.currentText()
         if stage == "health_check":
             self.start_health_check()
+        elif stage == "firmware_update":
+            self.start_firmware_update()
         elif stage == "base_config":
             self.start_base_configuration()
         elif stage == "request_cert":
@@ -489,13 +550,43 @@ class MainWindow(QMainWindow):
             self.start_certificate_upload()
         elif stage == "start_openvpn":
             self.start_openvpn()
-            
+    def start_firmware_update(self):
+        selected = self.get_selected_terminals()
+        if not selected:
+            QMessageBox.warning(self, "Ошибка", "Не выбрано ни одного терминала")
+            return
+        self.log_text.append(f"--- Обновление прошивки ---")
+        self.term_status = {}
+        self.total_tasks = len(selected)
+        self.completed_tasks = 0
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFormat(f"0 / {self.total_tasks}")
+        widgets_to_disable = (
+            self.findChildren(QPushButton) +
+            self.findChildren(QLineEdit) +
+            self.findChildren(QCheckBox) +
+            self.findChildren(QComboBox) +
+            self.findChildren(QSpinBox)
+        )
+        for widget in widgets_to_disable:
+            if widget != self.progress_bar:
+                widget.setEnabled(False)
+        self.executor = ThreadPoolExecutor(max_workers=3)
+        self.futures = []
+        for term_data in selected:
+            worker = FirmwareUpdateWorker(term_data, self.global_config)
+            future = self.executor.submit(worker.run)
+            self.futures.append(future)
+        self.monitor_thread = QThread()
+        self.monitor_thread.run = self.wait_for_completion
+        self.monitor_thread.finished.connect(self.on_all_finished)
+        self.monitor_thread.start()
     def start_base_configuration(self):
         selected = self.get_selected_terminals()
         if not selected:
             QMessageBox.warning(self, "Ошибка", "Не выбрано ни одного терминала")
             return
-        self.log_text.append(f"\n--- Указание настроек ---")
+        self.log_text.append(f"--- Указание настроек ---")
         self.term_status = {}
         self.total_tasks = len(selected)
         self.completed_tasks = 0
@@ -521,12 +612,11 @@ class MainWindow(QMainWindow):
         self.monitor_thread.run = self.wait_for_completion
         self.monitor_thread.finished.connect(self.on_all_finished)
         self.monitor_thread.start()
-        
     def _start_generic_task(self, terminals_list, worker_class, task_name):
         if not terminals_list:
             QMessageBox.warning(self, "Ошибка", "Не выбрано ни одного терминала")
             return
-        self.log_text.append(f"\n--- {task_name} ---")
+        self.log_text.append(f"--- {task_name} ---")
         self.term_status = {}
         self.total_tasks = len(terminals_list)
         self.completed_tasks = 0
@@ -552,7 +642,6 @@ class MainWindow(QMainWindow):
         self.monitor_thread.run = self.wait_for_completion
         self.monitor_thread.finished.connect(self.on_all_finished)
         self.monitor_thread.start()
-        
     def on_terminal_finished(self, device_id, status):
         self.completed_tasks += 1
         self.term_status[device_id] = status
@@ -564,13 +653,12 @@ class MainWindow(QMainWindow):
             if item and item.text() == device_id:
                 self.table.item(i, self.table.columnCount() - 1).setText(status)
                 break
-            
     def start_health_check(self):
         selected = self.get_selected_terminals()
         if not selected:
             QMessageBox.warning(self, "Ошибка", "Не выбрано ни одного терминала")
             return
-        self.log_text.append(f"\n--- Проверка связи ---")
+        self.log_text.append(f"--- Проверка связи ---")
         self.term_status = {}
         self.total_tasks = len(selected)
         self.completed_tasks = 0
@@ -595,7 +683,6 @@ class MainWindow(QMainWindow):
         self.monitor_thread.run = self.wait_for_completion
         self.monitor_thread.finished.connect(self.on_all_finished)
         self.monitor_thread.start()
-        
     def check_terminal_health(self, term_data):
         host_name = term_data.get('Host name', 'Unknown')
         use_local = term_data.get('IP Selection', 'main') == 'local'
@@ -620,7 +707,7 @@ class MainWindow(QMainWindow):
             self.history[host_name] = {}
         self.history[host_name]['health_check'] = {
             'status': status,
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.datetime.now().isoformat()
         }
         self.save_history()
         self.term_status[host_name] = status
@@ -641,13 +728,12 @@ class MainWindow(QMainWindow):
                     self.table.item(i, status_col_index).setText(status)
                 break
         return (host_name, status)
-    
     def start_certificate_request(self):
         selected = self.get_selected_terminals()
         if not selected:
             QMessageBox.warning(self, "Ошибка", "Не выбрано ни одного терминала")
             return
-        self.log_text.append(f"\n--- Запрос сертификатов ---")
+        self.log_text.append(f"--- Запрос сертификатов ---")
         self.term_status = {}
         self.total_tasks = len(selected)
         self.completed_tasks = 0
@@ -672,7 +758,6 @@ class MainWindow(QMainWindow):
         self.monitor_thread.run = self.wait_for_completion
         self.monitor_thread.finished.connect(self.on_all_finished)
         self.monitor_thread.start()
-        
     def request_terminal_certificate(self, term_data):
         host_name = term_data.get('Host name', 'Unknown')
         common_name = term_data.get('Common name', host_name)
@@ -697,7 +782,7 @@ class MainWindow(QMainWindow):
             self.history[host_name] = {}
         self.history[host_name]['certificate_request'] = {
             'status': status,
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.datetime.now().isoformat()
         }
         self.save_history()
         self.term_status[host_name] = status
@@ -711,13 +796,12 @@ class MainWindow(QMainWindow):
                 self.table.item(i, self.table.columnCount() - 1).setText(status)
                 break
         return (host_name, status)
-    
     def start_certificate_upload(self):
         selected = self.get_selected_terminals()
         if not selected:
             QMessageBox.warning(self, "Ошибка", "Не выбрано ни одного терминала")
             return
-        self.log_text.append(f"\n--- Загрузка сертификатов ---")
+        self.log_text.append(f"--- Загрузка сертификатов ---")
         self.term_status = {}
         self.total_tasks = len(selected)
         self.completed_tasks = 0
@@ -742,7 +826,6 @@ class MainWindow(QMainWindow):
         self.monitor_thread.run = self.wait_for_completion
         self.monitor_thread.finished.connect(self.on_all_finished)
         self.monitor_thread.start()
-        
     def upload_terminal_certificate(self, term_data):
         host_name = term_data.get('Host name', 'Unknown')
         cert_path = term_data.get('Клиентский сертификат (.crt)', '')
@@ -768,7 +851,7 @@ class MainWindow(QMainWindow):
             self.history[host_name] = {}
         self.history[host_name]['certificate_upload'] = {
             'status': status,
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.datetime.now().isoformat()
         }
         self.save_history()
         self.term_status[host_name] = status
@@ -782,13 +865,12 @@ class MainWindow(QMainWindow):
                 self.table.item(i, self.table.columnCount() - 1).setText(status)
                 break
         return (host_name, status)
-    
     def start_openvpn(self):
         selected = self.get_selected_terminals()
         if not selected:
             QMessageBox.warning(self, "Ошибка", "Не выбрано ни одного терминала")
             return
-        self.log_text.append(f"\n--- Запуск OpenVPN ---")
+        self.log_text.append(f"--- Запуск OpenVPN ---")
         self.term_status = {}
         self.total_tasks = len(selected)
         self.completed_tasks = 0
@@ -813,7 +895,6 @@ class MainWindow(QMainWindow):
         self.monitor_thread.run = self.wait_for_completion
         self.monitor_thread.finished.connect(self.on_all_finished)
         self.monitor_thread.start()
-        
     def start_terminal_openvpn(self, term_data):
         host_name = term_data.get('Host name', 'Unknown')
         try:
@@ -835,7 +916,7 @@ class MainWindow(QMainWindow):
             self.history[host_name] = {}
         self.history[host_name]['openvpn_start'] = {
             'status': status,
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.datetime.now().isoformat()
         }
         self.save_history()
         self.term_status[host_name] = status
@@ -849,23 +930,26 @@ class MainWindow(QMainWindow):
                 self.table.item(i, self.table.columnCount() - 1).setText(status)
                 break
         return (host_name, status)
-    
     def select_file(self, key, line_edit):
         path, _ = QFileDialog.getOpenFileName(self, f"Выберите файл для {key}")
         if path:
             line_edit.setText(path)
-            self.global_config[key] = path
-            
+            if key.startswith('base_config_'):
+                base_key = key.replace('base_config_', '')
+                base_config = self.global_config.get('base_config', {})
+                base_config[base_key] = path
+                self.global_config['base_config'] = base_config
+            else:
+                self.global_config[key] = path
+            self.save_config()
     def select_directory(self, key, line_edit):
         path = QFileDialog.getExistingDirectory(self, f"Выберите папку для {key}")
         if path:
             line_edit.setText(path)
             self.global_config[key] = path
             os.makedirs(path, exist_ok=True)
-            
     def load_config_into_ui(self):
         cfg = self.global_config
-        
     def load_excel(self):
         path, _ = QFileDialog.getOpenFileName(self, "Выберите Excel файл", "", "Excel Files (*.xlsx *.xls)")
         if not path:
@@ -888,8 +972,7 @@ class MainWindow(QMainWindow):
             self.display_table()
             self.log_text.append(f"Загружено {len(df)} терминалов")
         except Exception as e:
-            QMessageBox.critical(self, "Ошибка", f"Не удалось загрузить Excel:\n{e}")
-            
+            QMessageBox.critical(self, "Ошибка", f"Не удалось загрузить Excel:{e}")
     def _select_cert_file(self, row, col):
         path, _ = QFileDialog.getOpenFileName(
             self,
@@ -900,7 +983,6 @@ class MainWindow(QMainWindow):
         if path:
             item = QTableWidgetItem(path)
             self.table.setItem(row, col, item)
-            
     def display_table(self):
         if self.terminals_df is None:
             return
@@ -931,7 +1013,6 @@ class MainWindow(QMainWindow):
                     if col == 'Статус':
                         item.setFlags(item.flags() & ~Qt.ItemIsEditable)
                     self.table.setItem(i, table_col, item)
-                    
     def save_excel(self):
         if self.terminals_df is None:
             QMessageBox.warning(self, "Предупреждение", "Нет данных")
@@ -949,7 +1030,6 @@ class MainWindow(QMainWindow):
         if path:
             self.terminals_df.to_excel(path, index=False)
             self.log_text.append(f"Результаты сохранены в {path}")
-            
     def get_selected_terminals(self):
         selected = []
         for i in range(self.table.rowCount()):
@@ -961,12 +1041,10 @@ class MainWindow(QMainWindow):
                     row_dict[col] = item.text() if item else ""
                 selected.append(row_dict)
         return selected
-    
     def wait_for_completion(self):
         for future in as_completed(self.futures):
             device_id, status = future.result()
             self.on_terminal_finished(device_id, status)
-            
     def on_all_finished(self):
         self.monitor_thread.quit()
         widgets_to_enable = (
@@ -980,8 +1058,6 @@ class MainWindow(QMainWindow):
             if widget != self.progress_bar:
                 widget.setEnabled(True)
         self.log_text.append("✅ Задача завершена.")
-
-
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = MainWindow()
