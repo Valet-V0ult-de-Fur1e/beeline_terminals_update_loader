@@ -1,0 +1,8 @@
+/certs
+/csr_output
+/logs
+/other
+/upload_data
+/__pycache__
+/venv
+terminal_history.json
