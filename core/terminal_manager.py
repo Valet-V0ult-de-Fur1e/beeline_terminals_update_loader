@@ -1,5 +1,5 @@
 import pandas as pd
-from terminal_interface import TerminalInterface
+from .terminal_interface import TerminalInterface
 import threading
 import time
 import os
