@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-set PYTHON_SCRIPT=app.py
+set PYTHON_SCRIPT=main.py
 set VENV_DIR=venv
 set REQUIREMENTS=requirements.txt
 
