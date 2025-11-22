@@ -1,0 +1,43 @@
+{
+  "pipeline": {
+    "hostname": "",
+    "ext_control_enabled": false,
+    "use_hostname": true,
+    "standby_logo_path": "",
+    "work_logo_path": ""
+  },
+  "tls": {
+    "ebs_test_cert_path": "",
+    "ebs_prod_cert_path": "",
+    "tls_mode": "one-way",
+    "tls_stage": "prod"
+  },
+  "firmware": {
+    "firmware_path": ""
+  },
+  "openvpn": {
+    "ip_addresses": [
+      {
+        "ip": "",
+        "port": 1194
+      }
+    ]
+  },
+  "crl": {
+    "crl_path": ""
+  },
+  "cert_request": {
+    "output_folder": ""
+  },
+  "server_cert": {
+    "server_cert_path": ""
+  },
+  "client_cert": {
+    "client_cert_path": ""
+  },
+  "datetime": {
+    "timezone": "Europe/Moscow",
+    "primary_ntp": "",
+    "secondary_ntp": ""
+  }
+}
