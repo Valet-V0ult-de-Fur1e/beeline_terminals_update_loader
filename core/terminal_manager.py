@@ -1,8 +1,9 @@
 import pandas as pd
-from core.terminal_interface import TerminalInterface
+from terminal_interface import TerminalInterface
 import threading
 import time
 import os
+from datetime import datetime
 
 class TerminalManager:
     def __init__(self, config_manager):
@@ -156,9 +157,17 @@ class TerminalManager:
             if self.terminal_table_widget:
                 self.terminal_table_widget.update_terminal_status(terminal_index, "Setting date time...")
             
-            # Set date time
-            from datetime import datetime
-            terminal.set_datetime(datetime.now().isoformat())
+            # Set date time with proper ISO 8601 format (like "2025-11-19T18:23:13.641Z")
+            # Use UTC time to ensure Z suffix
+            utc_now = datetime.utcnow()
+            formatted_datetime = utc_now.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+            terminal.set_datetime(formatted_datetime)
+            
+            # Update status
+            if self.terminal_table_widget:
+                self.terminal_table_widget.update_terminal_status(terminal_index, "Setting date time settings...")
+            
+            # Set date time settings
             terminal.set_datetime_settings(
                 timezone=settings['datetime']['timezone'],
                 primary_ntp_server=settings['datetime']['primary_ntp'],
