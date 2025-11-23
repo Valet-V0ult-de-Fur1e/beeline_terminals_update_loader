@@ -3,20 +3,32 @@
     "hostname": "",
     "ext_control_enabled": false,
     "use_hostname": true,
-    "standby_logo_path": "",
-    "work_logo_path": ""
+    "standby_logo_path": "D:/work/ATM/beeline_terminals_update_loader/other/upload_data/logo33_stand_by.png",
+    "work_logo_path": "D:/work/ATM/beeline_terminals_update_loader/other/upload_data/logo34.png"
   },
   "tls": {
-    "ebs_test_cert_path": "",
-    "ebs_prod_cert_path": "",
+    "ebs_test_cert_path": "D:/work/ATM/beeline_terminals_update_loader/CA_EBS_test.crt",
+    "ebs_prod_cert_path": "D:/work/ATM/beeline_terminals_update_loader/CA_EBS.crt",
     "tls_mode": "one-way",
     "tls_stage": "prod"
   },
   "firmware": {
-    "firmware_path": ""
+    "firmware_path": "D:/work/ATM/beeline_terminals_update_loader/omini-system 1.12.0.tar.gz"
   },
   "openvpn": {
     "ip_addresses": [
+      {
+        "ip": "",
+        "port": 1194
+      },
+      {
+        "ip": "",
+        "port": 1194
+      },
+      {
+        "ip": "",
+        "port": 1194
+      },
       {
         "ip": "",
         "port": 1194
@@ -24,13 +36,13 @@
     ]
   },
   "crl": {
-    "crl_path": ""
+    "crl_path": "D:/work/ATM/beeline_terminals_update_loader/Upload/crl_beeline.pem"
   },
   "cert_request": {
-    "output_folder": ""
+    "output_folder": "D:/work/ATM/beeline_terminals_update_loader/certs_req"
   },
   "server_cert": {
-    "server_cert_path": ""
+    "server_cert_path": "D:/work/ATM/beeline_terminals_update_loader/Upload/CA_Beeline.crt"
   },
   "client_cert": {
     "client_cert_path": ""

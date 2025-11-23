@@ -69,6 +69,13 @@ class TerminalTableWidget(QWidget):
             # IP Type selection
             ip_combo = QComboBox()
             ip_combo.addItems(["local", "primary", "secondary"])
+            # Set current selection based on terminal's active IP
+            if terminal.active_ip == terminal.local_ip:
+                ip_combo.setCurrentText("local")
+            elif terminal.active_ip == terminal.primary_ip:
+                ip_combo.setCurrentText("primary")
+            elif terminal.active_ip == terminal.secondary_ip:
+                ip_combo.setCurrentText("secondary")
             self.table.setCellWidget(row, 9, ip_combo)
             
             # Certificate file selection
@@ -96,6 +103,13 @@ class TerminalTableWidget(QWidget):
     def check_health(self, row):
         if row < len(self.terminal_manager.terminals):
             terminal = self.terminal_manager.terminals[row]
+            
+            # Get IP type from combo box and set active IP
+            ip_combo = self.table.cellWidget(row, 9)
+            if ip_combo:
+                ip_type = ip_combo.currentText()
+                terminal.set_active_ip(ip_type)
+            
             # Update status
             self.table.setItem(row, 11, QTableWidgetItem("Checking..."))
             
@@ -120,14 +134,14 @@ class TerminalTableWidget(QWidget):
                 if row < len(self.terminal_manager.terminals):
                     terminal = self.terminal_manager.terminals[row]
                     
-                    # Get IP type from combo box
+                    # Get IP type from combo box and set active IP
                     ip_combo = self.table.cellWidget(row, 9)
                     if ip_combo:
                         ip_type = ip_combo.currentText()
                         terminal.set_active_ip(ip_type)
                     
-                    # Get certificate path from button state or stored data
-                    selected.append(terminal)
+                    # Add both terminal and row index
+                    selected.append((terminal, row))
         return selected
     
     def update_terminal_status(self, row, status):

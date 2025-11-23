@@ -97,6 +97,7 @@ class TerminalInterface:
         try:
             # health_check использует health_port (7777)
             response = self._make_request("GET", "/health_check", use_health_port=True)
+            print(response.json())
             if 200 <= response.status_code < 300:
                 try:
                     return response.json()
@@ -120,10 +121,10 @@ class TerminalInterface:
                 self.access_token = data['access_token']
             if 'refresh_token' in data.keys():
                 self.refresh_token = data['refresh_token']
-            print(f"Login response: {data}")
+            # print(f"Login response: {data}")
             return data
         except Exception as e:
-            print(f"Login failed: {e}")
+            # print(f"Login failed: {e}")
             return None
     
     def set_password(self):
@@ -150,10 +151,10 @@ class TerminalInterface:
             data = response.json()
             if 'access_token' in data.keys():
                 self.access_token = data['access_token']
-            print(f"Refresh token response: {data}")
+            # print(f"Refresh token response: {data}")
             return data
         except Exception as e:
-            print(f"Token refresh failed: {e}")
+            # print(f"Token refresh failed: {e}")
             return None
 
     def _get_auth_headers(self):
@@ -210,11 +211,15 @@ class TerminalInterface:
         try:
             print(f"Installing package from {file_path}...")
             with open(file_path, 'rb') as f:
+                files = {
+                    'details': (None, '{"self_install":true}', 'application/json'),
+                    'files[0]': (os.path.basename(file_path), f, 'application/x-gzip')
+                }
                 response1 = self._make_request(
                     "POST",
                     "/system/packages/manual_install",
                     headers=headers,
-                    files={'file': f}
+                    files=files
                 )
                 self._safe_json_response(response1, "Package install")
             print("Getting installed packages list...")
@@ -374,8 +379,20 @@ class TerminalInterface:
                     print("OpenVPN CRL upload response: Success (empty response)")
                     return {"status": "success", "message": "CRL uploaded successfully"}
                 else:
-                    self._safe_json_response(response, "OpenVPN CRL upload")
-                    return response.json()
+                    # Try to parse as JSON first
+                    try:
+                        response_json = response.json()
+                        # Check if it contains an error status
+                        if 'status' in response_json and isinstance(response_json['status'], dict) and response_json['status'].get('code', 0) != 0:
+                            print(f"OpenVPN CRL upload error: {response_json}")
+                            return response_json  # Return the error response
+                        else:
+                            self._safe_json_response(response, "OpenVPN CRL upload")
+                            return response_json
+                    except json.JSONDecodeError:
+                        # If it's not JSON, return the raw response
+                        print(f"OpenVPN CRL upload response: {response.text}")
+                        return {"status": "error", "message": response.text, "status_code": response.status_code}
         except Exception as e:
             print(f"OpenVPN CRL upload failed: {e}")
             return None
@@ -401,8 +418,19 @@ class TerminalInterface:
                 headers=headers,
                 json_data={"dateTime": datetime_str}
             )
-            self._safe_json_response(response, "Set datetime")
-            return response.json()
+            # Handle empty response (204 No Content or 200 with empty body)
+            if response.status_code in [200, 204] and len(response.content) == 0:
+                print("Set datetime response: Success (empty response)")
+                return {"status": "success", "message": "Datetime set successfully"}
+            else:
+                try:
+                    response_json = response.json()
+                    self._safe_json_response(response, "Set datetime")
+                    return response_json
+                except json.JSONDecodeError:
+                    print(f"Set datetime raw response: {response.text}")
+                    print(f"Status code: {response.status_code}")
+                    return {"status": "error", "message": response.text, "status_code": response.status_code}
         except Exception as e:
             print(f"Set datetime failed: {e}")
             return None
@@ -422,8 +450,19 @@ class TerminalInterface:
                 headers=headers,
                 json_data=settings_data
             )
-            self._safe_json_response(response, "Set datetime settings")
-            return response.json()
+            # Handle empty response (204 No Content or 200 with empty body)
+            if response.status_code in [200, 204] and len(response.content) == 0:
+                print("Set datetime settings response: Success (empty response)")
+                return {"status": "success", "message": "Datetime settings set successfully"}
+            else:
+                try:
+                    response_json = response.json()
+                    self._safe_json_response(response, "Set datetime settings")
+                    return response_json
+                except json.JSONDecodeError:
+                    print(f"Set datetime settings raw response: {response.text}")
+                    print(f"Status code: {response.status_code}")
+                    return {"status": "error", "message": response.text, "status_code": response.status_code}
         except Exception as e:
             print(f"Set datetime settings failed: {e}")
             return None
@@ -438,6 +477,7 @@ class TerminalInterface:
         Returns:
             bool: Успешно ли установлен IP
         """
+        print(f"IP type set to: {ip_type}")
         if ip_type == "local":
             self.active_ip = self.local_ip
         elif ip_type == "primary":

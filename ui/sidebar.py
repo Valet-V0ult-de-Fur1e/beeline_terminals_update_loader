@@ -1,19 +1,39 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QGroupBox, QPushButton, QComboBox,
     QLineEdit, QCheckBox, QSpinBox, QDoubleSpinBox, QLabel,
-    QFileDialog, QTabWidget, QScrollArea, QFrame, QTabBar, QHBoxLayout
+    QFileDialog, QTabWidget, QScrollArea, QFrame, QTabBar
 )
 from PySide6.QtCore import Signal, QSize
+from PySide6.QtCore import Qt
 import os
+import json
 
 class SidebarWidget(QWidget):
-    apply_settings_signal = Signal()
+    apply_settings_signal = Signal(str)  # Changed to accept tab name
     
     def __init__(self, terminal_manager):
         super().__init__()
         self.terminal_manager = terminal_manager
+        self.timezones = self.load_timezones()
         self.init_ui()
         
+    def load_timezones(self):
+        try:
+            json_file_path = "timezones.json"
+            if os.path.exists(json_file_path):
+                with open(json_file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    return data.get('listTimezones', [])
+            else:
+                return [
+                    "Europe/Moscow", "UTC"
+                ]
+        except Exception as e:
+            print(f"Error loading timezones: {e}")
+            return [
+                "Europe/Moscow", "UTC"
+            ]
+    
     def init_ui(self):
         layout = QVBoxLayout(self)
         
@@ -59,13 +79,24 @@ class SidebarWidget(QWidget):
         
         layout.addWidget(self.tab_widget)
         
-        # Apply Settings button
-        self.apply_btn = QPushButton("Apply Settings to Selected")
-        self.apply_btn.clicked.connect(self.on_apply_settings)
+        # Apply Settings button - now applies only active tab settings
+        self.apply_btn = QPushButton("Apply Active Tab Settings")
+        self.apply_btn.clicked.connect(self.on_apply_active_tab_settings)
         layout.addWidget(self.apply_btn)
+        
+        # Connect tab change after apply_btn is created
+        self.tab_widget.currentChanged.connect(self.on_tab_changed)
+        
+        # Set initial button text
+        self.on_tab_changed(0)  # Set initial text based on first tab
         
         # Add stretch to push buttons to bottom
         layout.addStretch()
+        
+    def on_tab_changed(self, index):
+        # Update button text to reflect active tab
+        tab_name = self.tab_widget.tabText(index)
+        self.apply_btn.setText(f"Apply {tab_name} Settings")
         
     def create_pipeline_tab(self):
         tab = QWidget()
@@ -132,10 +163,6 @@ class SidebarWidget(QWidget):
         self.tls_stage_combo.addItems(["test", "prod"])
         layout.addWidget(QLabel("Stage:"))
         layout.addWidget(self.tls_stage_combo)
-        
-        # Start TLS
-        self.start_tls_btn = QPushButton("Start TLS")
-        layout.addWidget(self.start_tls_btn)
         
         layout.addStretch()
         return tab
@@ -238,9 +265,9 @@ class SidebarWidget(QWidget):
         tab = QWidget()
         layout = QVBoxLayout(tab)
         
-        # Time zone
+        # Time zone - now populated from loaded timezones
         self.timezone_combo = QComboBox()
-        self.timezone_combo.addItems(["Europe/Moscow", "UTC", "Europe/London", "America/New_York"])
+        self.timezone_combo.addItems(self.timezones)
         layout.addWidget(QLabel("Time Zone:"))
         layout.addWidget(self.timezone_combo)
         
@@ -259,7 +286,7 @@ class SidebarWidget(QWidget):
     def add_ip_address(self):
         ip_frame = QFrame()
         ip_frame.setFrameStyle(QFrame.StyledPanel)
-        ip_layout = QHBoxLayout(ip_frame)
+        ip_layout = QVBoxLayout(ip_frame)
         
         ip_edit = QLineEdit()
         ip_edit.setPlaceholderText("IP Address")
@@ -325,10 +352,14 @@ class SidebarWidget(QWidget):
         if file_path:
             self.client_cert_path.setText(file_path)
     
-    def on_apply_settings(self):
-        self.apply_settings_signal.emit()
+    def on_apply_active_tab_settings(self):
+        current_tab_index = self.tab_widget.currentIndex()
+        current_tab_name = self.tab_widget.tabText(current_tab_index)
+        
+        # Emit signal with active tab name
+        self.apply_settings_signal.emit(current_tab_name)
     
-    def get_settings(self):
+    def get_active_tab_settings(self, tab_name):
         settings = {
             'pipeline': {
                 'hostname': self.hostname_edit.text(),
@@ -367,7 +398,7 @@ class SidebarWidget(QWidget):
                 'secondary_ntp': self.secondary_ntp.text()
             }
         }
-        return settings
+        return settings.get(tab_name.lower().replace(' ', '_'), {})
     
     def get_ip_addresses(self):
         ip_addresses = []

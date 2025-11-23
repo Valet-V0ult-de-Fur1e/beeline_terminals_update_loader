@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QMainWindow, QHBoxLayout, QWidget, QSplitter, QStatusBar,
     QFileDialog, QMessageBox, QProgressBar, QTabWidget
 )
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from ui.sidebar import SidebarWidget
 from ui.terminal_table import TerminalTableWidget
 from core.terminal_manager import TerminalManager
@@ -64,8 +64,7 @@ class MainWindow(QMainWindow):
         self.status_bar.addPermanentWidget(self.progress_bar)
         
         # Connect signals
-        self.sidebar.apply_settings_signal.connect(self.on_apply_settings)
-        self.terminal_table.terminal_status_changed.connect(self.update_progress)
+        self.sidebar.apply_settings_signal.connect(self.on_apply_active_tab_settings)
         
     def on_load_excel(self, file_path):
         try:
@@ -75,27 +74,36 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load Excel file: {str(e)}")
     
-    def on_apply_settings(self):
-        # Get selected terminals
-        selected_terminals = self.terminal_table.get_selected_terminals()
-        if not selected_terminals:
+    def on_apply_active_tab_settings(self, tab_name):
+        # Get selected terminals with their row indices
+        selected_terminals_with_rows = self.terminal_table.get_selected_terminals()
+        if not selected_terminals_with_rows:
             QMessageBox.warning(self, "Warning", "Please select terminals to apply settings")
             return
         
         # Show progress bar
         self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, len(selected_terminals))
+        self.progress_bar.setRange(0, len(selected_terminals_with_rows))
         self.progress_bar.setValue(0)
         
-        # Apply settings to selected terminals
-        self.terminal_manager.apply_settings_to_terminals(selected_terminals, self.sidebar.get_settings())
+        # Connect progress signal
+        self.terminal_manager.progress_updated.connect(self.update_progress)
         
+        # Get settings for active tab
+        tab_settings = self.sidebar.get_active_tab_settings(tab_name)
+        
+        # Apply settings to selected terminals
+        self.terminal_manager.apply_settings_to_terminals(selected_terminals_with_rows, tab_settings, tab_name)
+        
+        # Hide progress bar after completion
+        self.progress_bar.setVisible(False)
+        self.terminal_manager.progress_updated.disconnect(self.update_progress)
+    
     def update_progress(self, value, max_value):
         if max_value > 0:
             self.progress_bar.setMaximum(max_value)
             self.progress_bar.setValue(value)
-            if value >= max_value:
-                self.progress_bar.setVisible(False)
+            self.status_bar.showMessage(f"Progress: {value}/{max_value}")
     
     def load_config(self):
         try:
