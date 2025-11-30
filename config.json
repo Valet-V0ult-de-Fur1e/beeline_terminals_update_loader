@@ -48,7 +48,6 @@
     "cert_folder_path": "D:/work/ATM/beeline_terminals_update_loader"
   },
   "datetime": {
-    "timezone": "Europe/Moscow",
     "primary_ntp": "",
     "secondary_ntp": ""
   }

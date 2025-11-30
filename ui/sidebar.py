@@ -554,7 +554,6 @@ class SidebarWidget(QWidget):
                 'cert_folder_path': self.client_cert_folder_path.text()
             },
             'datetime': {
-                'timezone': self.timezone_combo.currentText(),
                 'primary_ntp': self.primary_ntp.text(),
                 'secondary_ntp': self.secondary_ntp.text()
             }
