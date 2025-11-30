@@ -1,7 +1,8 @@
+# ui/sidebar.py
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QGroupBox, QPushButton, QComboBox,
     QLineEdit, QCheckBox, QSpinBox, QDoubleSpinBox, QLabel,
-    QFileDialog, QTabWidget, QScrollArea, QFrame, QTabBar
+    QFileDialog, QTabWidget, QScrollArea, QFrame, QTabBar, QMessageBox
 )
 from PySide6.QtCore import Signal, QSize
 from PySide6.QtCore import Qt
@@ -36,63 +37,99 @@ class SidebarWidget(QWidget):
     
     def init_ui(self):
         layout = QVBoxLayout(self)
-        
         # Create tab widget for different settings sections
         self.tab_widget = QTabWidget()
         self.tab_widget.setTabPosition(QTabWidget.West)  # Place tabs on the left side
-        
-        # Pipeline Settings
+
+        # NEW: Registration Tab - Add this first
+        self.registration_tab = self.create_registration_tab()
+        self.tab_widget.addTab(self.registration_tab, "Registration") # Добавляем первой
+
+        # Existing Tabs - Add them after Registration
         self.pipeline_tab = self.create_pipeline_tab()
         self.tab_widget.addTab(self.pipeline_tab, "Pipeline")
-        
-        # TLS Settings
+
         self.tls_tab = self.create_tls_tab()
         self.tab_widget.addTab(self.tls_tab, "TLS")
-        
-        # Firmware Settings
+
         self.firmware_tab = self.create_firmware_tab()
         self.tab_widget.addTab(self.firmware_tab, "Firmware")
-        
-        # OpenVPN Settings
+
         self.openvpn_tab = self.create_openvpn_tab()
         self.tab_widget.addTab(self.openvpn_tab, "OpenVPN")
-        
-        # CRL Settings
+
         self.crl_tab = self.create_crl_tab()
         self.tab_widget.addTab(self.crl_tab, "CRL")
-        
-        # Certificate Request Settings
+
         self.cert_req_tab = self.create_cert_request_tab()
         self.tab_widget.addTab(self.cert_req_tab, "Cert Request")
-        
-        # Server Cert Settings
+
         self.server_cert_tab = self.create_server_cert_tab()
         self.tab_widget.addTab(self.server_cert_tab, "Server Cert")
-        
-        # Client Cert Settings
+
         self.client_cert_tab = self.create_client_cert_tab()
         self.tab_widget.addTab(self.client_cert_tab, "Client Cert")
-        
-        # DateTime Settings
-        self.datetime_tab = self.create_datetime_tab()
-        self.tab_widget.addTab(self.datetime_tab, "DateTime")
-        
+
+        # NEW: Modified DateTime Tab - Add after other tabs
+        self.datetime_tab = self.create_datetime_tab() # Создаем модифицированную вкладку
+        self.tab_widget.addTab(self.datetime_tab, "DateTime") # Добавляем в конец
+
         layout.addWidget(self.tab_widget)
-        
+
         # Apply Settings button - now applies only active tab settings
         self.apply_btn = QPushButton("Apply Active Tab Settings")
         self.apply_btn.clicked.connect(self.on_apply_active_tab_settings)
         layout.addWidget(self.apply_btn)
-        
+
         # Connect tab change after apply_btn is created
         self.tab_widget.currentChanged.connect(self.on_tab_changed)
-        
         # Set initial button text
-        self.on_tab_changed(0)  # Set initial text based on first tab
-        
+        self.on_tab_changed(0)  # Set initial text based on first tab (Registration)
+
         # Add stretch to push buttons to bottom
         layout.addStretch()
-        
+    
+    def create_registration_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        # Кнопка "Сбросить пароль"
+        self.reset_password_btn = QPushButton("Reset Password")
+        self.reset_password_btn.clicked.connect(self.on_reset_password_clicked)
+        layout.addWidget(self.reset_password_btn)
+
+        # Кнопка "Установить пароль" (использует существующий метод)
+        self.set_password_btn = QPushButton("Set Password")
+        self.set_password_btn.clicked.connect(self.on_set_password_clicked)
+        layout.addWidget(self.set_password_btn)
+
+        layout.addStretch()
+        return tab
+
+    def on_reset_password_clicked(self):
+        """Обработчик кнопки 'Сбросить пароль'."""
+        # Получаем выбранные терминалы и их индексы строки из таблицы
+        if self.terminal_manager.terminal_table_widget:
+            selected_terminals_with_rows = self.terminal_manager.terminal_table_widget.get_selected_terminals()
+            if not selected_terminals_with_rows:
+                QMessageBox.warning(self, "Warning", "Please select terminals to reset password.")
+                return
+
+            # Отправляем сигнал с уникальным именем вкладки
+            self.apply_settings_signal.emit("registration_reset_password")
+
+    def on_set_password_clicked(self):
+        """Обработчик кнопки 'Установить пароль'."""
+        # Логика аналогична другим вкладкам
+        selected_terminals_with_rows = []
+        if self.terminal_manager.terminal_table_widget:
+            selected_terminals_with_rows = self.terminal_manager.terminal_table_widget.get_selected_terminals()
+            if not selected_terminals_with_rows:
+                QMessageBox.warning(self, "Warning", "Please select terminals to set password.")
+                return
+        # Отправляем сигнал с уникальным именем вкладки
+        self.apply_settings_signal.emit("registration_set_password")
+
     def on_tab_changed(self, index):
         # Update button text to reflect active tab
         tab_name = self.tab_widget.tabText(index)
@@ -250,36 +287,42 @@ class SidebarWidget(QWidget):
     def create_client_cert_tab(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
-        
-        self.client_cert_btn = QPushButton("Select Client Certificate")
-        self.client_cert_btn.clicked.connect(self.select_client_cert)
-        self.client_cert_path = QLineEdit()
-        layout.addWidget(QLabel("Client Certificate:"))
-        layout.addWidget(self.client_cert_btn)
-        layout.addWidget(self.client_cert_path)
-        
+        self.client_cert_folder_btn = QPushButton("Select Client Certificates Folder")
+        self.client_cert_folder_btn.clicked.connect(self.select_client_cert_folder)
+        self.client_cert_folder_path = QLineEdit()
+        layout.addWidget(QLabel("Client Certificates Folder:"))
+        layout.addWidget(self.client_cert_folder_btn)
+        layout.addWidget(self.client_cert_folder_path)
+
+        self.match_certs_btn = QPushButton("Match Certificates")
+        self.match_certs_btn.clicked.connect(self.match_certificates)
+        layout.addWidget(self.match_certs_btn)
+
         layout.addStretch()
         return tab
+    
+    def select_client_cert_folder(self):
+        folder_path = QFileDialog.getExistingDirectory(self, "Select Client Certificates Folder")
+        if folder_path:
+            self.client_cert_folder_path.setText(folder_path)
+    
+    def match_certificates(self):
+        folder_path = self.client_cert_folder_path.text()
+        if not folder_path or not os.path.isdir(folder_path):
+            QMessageBox.warning(self, "Warning", "Please select a valid certificates folder.")
+            return
+        self.terminal_manager.match_certificates_from_folder(folder_path)
     
     def create_datetime_tab(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
-        
-        # Time zone - now populated from loaded timezones
-        self.timezone_combo = QComboBox()
-        self.timezone_combo.addItems(self.timezones)
-        layout.addWidget(QLabel("Time Zone:"))
-        layout.addWidget(self.timezone_combo)
-        
-        # NTP servers
         self.primary_ntp = QLineEdit()
         layout.addWidget(QLabel("Primary NTP Server:"))
         layout.addWidget(self.primary_ntp)
-        
         self.secondary_ntp = QLineEdit()
         layout.addWidget(QLabel("Secondary NTP Server:"))
         layout.addWidget(self.secondary_ntp)
-        
+
         layout.addStretch()
         return tab
     
@@ -390,14 +433,15 @@ class SidebarWidget(QWidget):
                 'server_cert_path': self.server_cert_path.text()
             },
             'client_cert': {
-                'client_cert_path': self.client_cert_path.text()
+                'cert_folder_path': self.client_cert_folder_path.text()
             },
             'datetime': {
-                'timezone': self.timezone_combo.currentText(),
                 'primary_ntp': self.primary_ntp.text(),
                 'secondary_ntp': self.secondary_ntp.text()
             }
         }
+        if tab_name.lower() in ['registration', 'registration_set_password']:
+             return {} # Настройки для этой вкладки не требуются или обрабатываются по-другому
         return settings.get(tab_name.lower().replace(' ', '_'), {})
     
     def get_ip_addresses(self):
@@ -468,12 +512,11 @@ class SidebarWidget(QWidget):
         # Load client certificate settings
         if 'client_cert' in config:
             client_cert = config['client_cert']
-            self.client_cert_path.setText(client_cert.get('client_cert_path', ''))
+            self.client_cert_folder_path.setText(client_cert.get('cert_folder_path', ''))
         
         # Load datetime settings
         if 'datetime' in config:
             datetime_settings = config['datetime']
-            self.timezone_combo.setCurrentText(datetime_settings.get('timezone', 'Europe/Moscow'))
             self.primary_ntp.setText(datetime_settings.get('primary_ntp', ''))
             self.secondary_ntp.setText(datetime_settings.get('secondary_ntp', ''))
     
@@ -508,7 +551,7 @@ class SidebarWidget(QWidget):
                 'server_cert_path': self.server_cert_path.text()
             },
             'client_cert': {
-                'client_cert_path': self.client_cert_path.text()
+                'cert_folder_path': self.client_cert_folder_path.text()
             },
             'datetime': {
                 'timezone': self.timezone_combo.currentText(),

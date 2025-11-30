@@ -39,13 +39,13 @@
     "crl_path": "D:/work/ATM/beeline_terminals_update_loader/Upload/crl_beeline.pem"
   },
   "cert_request": {
-    "output_folder": "D:/work/ATM/beeline_terminals_update_loader/certs_req"
+    "output_folder": "D:/work/ATM/beeline_terminals_update_loader"
   },
   "server_cert": {
     "server_cert_path": "D:/work/ATM/beeline_terminals_update_loader/Upload/CA_Beeline.crt"
   },
   "client_cert": {
-    "client_cert_path": ""
+    "cert_folder_path": "D:/work/ATM/beeline_terminals_update_loader"
   },
   "datetime": {
     "timezone": "Europe/Moscow",

@@ -1,3 +1,4 @@
+# ui/main_window.py
 import os
 import json
 from PySide6.QtWidgets import (

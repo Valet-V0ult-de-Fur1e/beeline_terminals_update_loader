@@ -1,3 +1,4 @@
+# core/terminal_interface.py
 import json
 import os
 import requests 
@@ -7,14 +8,13 @@ class TerminalInterface:
     def __init__(self, device_id, password, terminal_login="cryptouser",
                  host_name="", common_name="", city="", org_name="",
                  primary_ip="", secondary_ip="", local_ip="",
-                 port=4011, health_port=7777, log_dir="./logs"):
-        # Основной порт для всех запросов
+                 pin_code="", timezone="", # Добавляем новые параметры
+                 port=4011, health_port=7777, log_dir="./logs"):        # Основной порт для всех запросов
         self.port = port
         # Порт для health check
         self.health_port = health_port
         self.device_id = device_id
         self.terminal_login = terminal_login
-        self.password = password
         self.access_token = None
         self.refresh_token = None
         self.log_dir = log_dir
@@ -29,7 +29,9 @@ class TerminalInterface:
         self.primary_ip = primary_ip      # IP №1 (основной)
         self.secondary_ip = secondary_ip  # IP №2 (резервный)
         self.local_ip = local_ip          # IP локальный (по умолчанию используется)
-        
+        self.password = password          # Пароль
+        self.pin_code = pin_code          # Пин-код (новое поле)
+        self.timezone = timezone          # Временная зона (новое поле)
         # Активный IP для запросов (по умолчанию — локальный)
         self.active_ip = local_ip
 
@@ -325,13 +327,21 @@ class TerminalInterface:
         print(f"Uploading OpenVPN certificate from {cert_file_path} (is_ca: {is_ca})")
         try:
             with open(cert_file_path, 'rb') as f:
-                response = self._make_request(
-                    "POST",
-                    "/security/openvpn_cert",
-                    headers=headers,
-                    files={'file': f},
-                    params={'is_ca': str(is_ca).lower()}
-                )
+                if is_ca:
+                    response = self._make_request(
+                        "POST",
+                        "/security/openvpn_cert",
+                        headers=headers,
+                        files={'file': f},
+                        params={'is_ca': str(is_ca).lower()}
+                    )
+                else:
+                    response = self._make_request(
+                        "POST",
+                        "/security/openvpn_client_cert",
+                        headers=headers,
+                        files={'file': f}
+                    )
                 self._safe_json_response(response, "OpenVPN certificate upload")
                 return response.json()
         except Exception as e:
@@ -407,6 +417,23 @@ class TerminalInterface:
         except Exception as e:
             print(f"OpenVPN start failed: {e}")
             return None
+    
+    def reset_password_via_pin(self, pin):
+        """Сброс пароля с использованием PIN-кода."""
+        try:
+            response = self._make_request("POST", "/security/reset_password",
+                                        json_data={"pin": pin})
+            # Проверяем статус код
+            if response.status_code == 200:
+                print(f"Password reset successfully for terminal {self.device_id}")
+                return True
+            else:
+                print(f"Password reset failed for terminal {self.device_id} with status {response.status_code}")
+                print(f"Response: {response.text}")
+                return False
+        except Exception as e:
+            print(f"Error during password reset for terminal {self.device_id}: {e}")
+            return False
 
     def set_datetime(self, datetime_str):
         headers = self._get_auth_headers()
@@ -520,7 +547,9 @@ class TerminalInterface:
             "health_port": self.health_port,
             "device_id": self.device_id,
             "terminal_login": self.terminal_login,
-            "password": self.password
+            "password": self.password,
+            "pin_code": self.pin_code, # Добавляем в конфиг
+            "timezone": self.timezone  # Добавляем в конфиг
         }
 
     def update_from_table_row(self, row_dict):
@@ -528,7 +557,7 @@ class TerminalInterface:
         Обновляет конфигурацию терминала из словаря, соответствующего строке таблицы.
         Args:
             row_dict (dict): Словарь с ключами: Host name, Common name, Город, Наименование организации,
-                            IP № 1 (основной), IP № 2 (резервный), IP локальный, Пароль
+                            IP № 1 (основной), IP № 2 (резервный), IP локальный, Пароль, Пин-код, Временная зона
         """
         mapping = {
             "Host name": "host_name",
@@ -538,16 +567,15 @@ class TerminalInterface:
             "IP № 1 (основной)": "primary_ip",
             "IP № 2 (резервный)": "secondary_ip",
             "IP локальный": "local_ip",
-            "Пароль": "password"
+            "Пароль": "password",
+            "Пин-код": "pin_code", # Добавляем маппинг для пин-кода
+            "Временная зона": "timezone" # Добавляем маппинг для временной зоны
         }
-
         for table_key, attr_name in mapping.items():
             if table_key in row_dict:
                 setattr(self, attr_name, row_dict[table_key])
-
         if "Host name" in row_dict:
             self.device_id = row_dict["Host name"]
             self.terminal_login = row_dict["Host name"]
-
         self.active_ip = self.local_ip
         print(f"Terminal {self.device_id} configuration updated from table row.")
