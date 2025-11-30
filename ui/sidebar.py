@@ -15,25 +15,7 @@ class SidebarWidget(QWidget):
     def __init__(self, terminal_manager):
         super().__init__()
         self.terminal_manager = terminal_manager
-        self.timezones = self.load_timezones()
         self.init_ui()
-        
-    def load_timezones(self):
-        try:
-            json_file_path = "timezones.json"
-            if os.path.exists(json_file_path):
-                with open(json_file_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    return data.get('listTimezones', [])
-            else:
-                return [
-                    "Europe/Moscow", "UTC"
-                ]
-        except Exception as e:
-            print(f"Error loading timezones: {e}")
-            return [
-                "Europe/Moscow", "UTC"
-            ]
     
     def init_ui(self):
         layout = QVBoxLayout(self)
@@ -75,6 +57,8 @@ class SidebarWidget(QWidget):
         self.tab_widget.addTab(self.datetime_tab, "DateTime") # Добавляем в конец
 
         layout.addWidget(self.tab_widget)
+        
+        layout.addStretch()
 
         # Apply Settings button - now applies only active tab settings
         self.apply_btn = QPushButton("Apply Active Tab Settings")

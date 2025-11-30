@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QFileDialog, QMessageBox, QProgressBar, QTabWidget
 )
 from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtWidgets import QSizePolicy # <-- Добавлен импорт
 from ui.sidebar import SidebarWidget
 from ui.terminal_table import TerminalTableWidget
 from core.terminal_manager import TerminalManager
@@ -40,10 +41,16 @@ class MainWindow(QMainWindow):
         
         # Create sidebar
         self.sidebar = SidebarWidget(self.terminal_manager)
+        # <-- НАЧАЛО: Установка политики размера для sidebar -->
+        self.sidebar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        # <-- КОНЕЦ: Установка политики размера -->
         self.splitter.addWidget(self.sidebar)
         
         # Create tab widget for main content
         self.tab_widget = QTabWidget()
+        # <-- НАЧАЛО: Установка политики размера для tab_widget -->
+        self.tab_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        # <-- КОНЕЦ: Установка политики размера -->
         
         # Create terminal table
         self.terminal_table = TerminalTableWidget(self.terminal_manager, self.sidebar)
@@ -52,6 +59,10 @@ class MainWindow(QMainWindow):
         
         self.splitter.addWidget(self.tab_widget)
         self.splitter.setSizes([300, 1100])  # Set initial sizes
+        
+        # <-- НАЧАЛО: Установка политики размера для splitter -->
+        self.splitter.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        # <-- КОНЕЦ: Установка политики размера -->
         
         layout.addWidget(self.splitter)
         
