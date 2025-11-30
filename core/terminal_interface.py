@@ -1,27 +1,26 @@
+# core/terminal_interface.py
 import json
 import os
-import requests
+import requests 
 from datetime import datetime
 
 class TerminalInterface:
     def __init__(self, device_id, password, terminal_login="cryptouser",
                  host_name="", common_name="", city="", org_name="",
                  primary_ip="", secondary_ip="", local_ip="",
-                 port=4011, health_port=7777, log_dir="./logs",
-                 pin_code="", timezone="Europe/Moscow"): # Добавляем pin_code и timezone
-        # Основной порт для всех запросов
+                 pin_code="", timezone="", # Добавляем новые параметры
+                 port=4011, health_port=7777, log_dir="./logs"):        # Основной порт для всех запросов
         self.port = port
         # Порт для health check
         self.health_port = health_port
         self.device_id = device_id
         self.terminal_login = terminal_login
-        self.password = password
         self.access_token = None
         self.refresh_token = None
         self.log_dir = log_dir
-        self.session = requests.Session()
+        self.session = requests.Session() 
         os.makedirs(self.log_dir, exist_ok=True)
-
+        
         # Поля из таблицы
         self.host_name = host_name
         self.common_name = common_name
@@ -30,13 +29,9 @@ class TerminalInterface:
         self.primary_ip = primary_ip      # IP №1 (основной)
         self.secondary_ip = secondary_ip  # IP №2 (резервный)
         self.local_ip = local_ip          # IP локальный (по умолчанию используется)
-
-        # НОВЫЕ ПОЛЯ ИЗ ТАБЛИЦЫ
-        self.pin_code = pin_code
-        self.timezone = timezone
-        # Поле для хранения пути к сертификату
-        self.client_cert_path = None # Инициализируем как None
-
+        self.password = password          # Пароль
+        self.pin_code = pin_code          # Пин-код (новое поле)
+        self.timezone = timezone          # Временная зона (новое поле)
         # Активный IP для запросов (по умолчанию — локальный)
         self.active_ip = local_ip
 
@@ -73,6 +68,7 @@ class TerminalInterface:
     def _make_request(self, method, endpoint, headers=None, json_data=None, files=None, params=None, use_health_port=False):
         # Используем активный IP и соответствующий порт для формирования URL
         url = f"{self._get_base_url(use_health_port=use_health_port)}{endpoint}" if not endpoint.startswith(('http://', 'https://')) else endpoint
+
         request_log = self._log_request(method, url, headers, json_data, files)
         try:
             response = self.session.request(
@@ -121,7 +117,7 @@ class TerminalInterface:
     def login(self):
         try:
             response = self._make_request("POST", "/auth/login",
-                                          json_data={"username": self.terminal_login, "password": self.password})
+                                        json_data={"username": self.terminal_login, "password": self.password})
             data = response.json()
             if 'access_token' in data.keys():
                 self.access_token = data['access_token']
@@ -132,11 +128,11 @@ class TerminalInterface:
         except Exception as e:
             # print(f"Login failed: {e}")
             return None
-
+    
     def set_password(self):
         try:
             response = self._make_request("POST", "/set_password",
-                                          json_data={"password": self.password})
+                                        json_data={"password": self.password})
             data = response.json()
             if 'access_token' in data.keys():
                 self.access_token = data['access_token']
@@ -148,21 +144,12 @@ class TerminalInterface:
             print(f"Login failed: {e}")
             return None
 
-    def reset_password(self, pin):
-        try:
-            response = self._make_request("POST", "/security/reset_password",
-                                          json_data={"pin": pin})
-            return response.status_code == 200
-        except Exception as e:
-            print(f"Reset password failed: {e}")
-            return None
-
     def refresh_token(self):
         try:
             headers = {"Authorization": self.refresh_token} if self.refresh_token else {}
             response = self._make_request("POST", "/auth/refresh",
-                                          headers=headers,
-                                          json_data={"device_id": self.device_id})
+                                        headers=headers,
+                                        json_data={"device_id": self.device_id})
             data = response.json()
             if 'access_token' in data.keys():
                 self.access_token = data['access_token']
@@ -294,16 +281,16 @@ class TerminalInterface:
 
         # Создаем папку если она не существует
         os.makedirs(output_folder, exist_ok=True)
-
+        
         # Формируем имя файла
         filename = f"{common_name}.csr"
         filepath = os.path.join(output_folder, filename)
-
+        
         # Проверяем, существует ли уже файл
         if os.path.exists(filepath):
             print(f"Certificate request already exists: {filepath}")
             return {"status": "exists", "filename": filepath, "message": "Certificate request already exists"}
-
+        
         headers = self._get_auth_headers()
         params = {
             'common_name': common_name,
@@ -365,6 +352,7 @@ class TerminalInterface:
         if addresses is None:
             addresses = [self.primary_ip, self.secondary_ip]
             addresses = [ip for ip in addresses if ip]
+
         headers = self._get_auth_headers()
         config = {
             "addresses": addresses,
@@ -429,6 +417,23 @@ class TerminalInterface:
         except Exception as e:
             print(f"OpenVPN start failed: {e}")
             return None
+    
+    def reset_password_via_pin(self, pin):
+        """Сброс пароля с использованием PIN-кода."""
+        try:
+            response = self._make_request("POST", "/security/reset_password",
+                                        json_data={"pin": pin})
+            # Проверяем статус код
+            if response.status_code == 200:
+                print(f"Password reset successfully for terminal {self.device_id}")
+                return True
+            else:
+                print(f"Password reset failed for terminal {self.device_id} with status {response.status_code}")
+                print(f"Response: {response.text}")
+                return False
+        except Exception as e:
+            print(f"Error during password reset for terminal {self.device_id}: {e}")
+            return False
 
     def set_datetime(self, datetime_str):
         headers = self._get_auth_headers()
@@ -490,6 +495,7 @@ class TerminalInterface:
             return None
 
     # ========== МЕТОДЫ ПЕРЕКЛЮЧЕНИЯ IP ==========
+
     def set_active_ip(self, ip_type="local"):
         """
         Устанавливает активный IP-адрес для выполнения запросов.
@@ -510,6 +516,7 @@ class TerminalInterface:
         else:
             print(f"Unknown IP type: {ip_type}. Use 'local', 'primary', 'secondary' or valid IP address.")
             return False
+
         print(f"Active IP set to: {self.active_ip}")
         return True
 
@@ -540,7 +547,9 @@ class TerminalInterface:
             "health_port": self.health_port,
             "device_id": self.device_id,
             "terminal_login": self.terminal_login,
-            "password": self.password
+            "password": self.password,
+            "pin_code": self.pin_code, # Добавляем в конфиг
+            "timezone": self.timezone  # Добавляем в конфиг
         }
 
     def update_from_table_row(self, row_dict):
@@ -559,16 +568,14 @@ class TerminalInterface:
             "IP № 2 (резервный)": "secondary_ip",
             "IP локальный": "local_ip",
             "Пароль": "password",
-            "Пин-код": "pin_code", # Добавляем mapping для pin_code
-            "Временная зона": "timezone" # Добавляем mapping для timezone
+            "Пин-код": "pin_code", # Добавляем маппинг для пин-кода
+            "Временная зона": "timezone" # Добавляем маппинг для временной зоны
         }
         for table_key, attr_name in mapping.items():
             if table_key in row_dict:
                 setattr(self, attr_name, row_dict[table_key])
-
         if "Host name" in row_dict:
             self.device_id = row_dict["Host name"]
             self.terminal_login = row_dict["Host name"]
-
         self.active_ip = self.local_ip
         print(f"Terminal {self.device_id} configuration updated from table row.")

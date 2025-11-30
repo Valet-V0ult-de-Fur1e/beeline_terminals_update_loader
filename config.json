@@ -13,7 +13,7 @@
     "tls_stage": "prod"
   },
   "firmware": {
-    "firmware_path": "D:/work/ATM/beeline_terminals_update_loader/Upload/omini-system 1.11.6/omini-system 1.11.6.tar.gz"
+    "firmware_path": "D:/work/ATM/beeline_terminals_update_loader/omini-system 1.12.0.tar.gz"
   },
   "openvpn": {
     "ip_addresses": [
@@ -39,16 +39,15 @@
     "crl_path": "D:/work/ATM/beeline_terminals_update_loader/Upload/crl_beeline.pem"
   },
   "cert_request": {
-    "output_folder": "D:/work/ATM/beeline_terminals_update_loader/certs_req"
+    "output_folder": "D:/work/ATM/beeline_terminals_update_loader"
   },
   "server_cert": {
     "server_cert_path": "D:/work/ATM/beeline_terminals_update_loader/Upload/CA_Beeline.crt"
   },
   "client_cert": {
-    "client_cert_path": ""
+    "cert_folder_path": "D:/work/ATM/beeline_terminals_update_loader"
   },
   "datetime": {
-    "timezone": "Asia/Vladivostok",
     "primary_ntp": "",
     "secondary_ntp": ""
   }

@@ -1,3 +1,4 @@
+# core/terminal_manager.py
 import pandas as pd
 from .terminal_interface import TerminalInterface
 import threading
@@ -8,48 +9,62 @@ from PySide6.QtCore import Signal, QObject
 
 class TerminalManager(QObject):
     progress_updated = Signal(int, int)  # current, total
-
+    
     def __init__(self, config_manager):
         super().__init__()
         self.terminals = []
         self.config_manager = config_manager
         self.terminal_table_widget = None  # Will be set from UI
+        self.terminal_cert_mapping = {} # Словарь для хранения соответствия terminal_id -> cert_path
 
     def set_terminal_table_widget(self, terminal_table_widget):
         self.terminal_table_widget = terminal_table_widget
+        
+    def get_terminal_cert_path(self, terminal_id):
+        """Возвращает путь к пользовательскому сертификату для терминала."""
+        return self.terminal_cert_mapping.get(terminal_id)
+    
+    def match_certificates_from_folder(self, folder_path):
+        if not os.path.isdir(folder_path):
+            print(f"Invalid folder path: {folder_path}")
+            return
 
+        # Собираем все .crt и .pem файлы из папки
+        cert_files = []
+        for filename in os.listdir(folder_path):
+            if filename.lower().endswith(('.crt', '.pem')):
+                cert_files.append(filename)
+
+        # Сопоставляем файлы с терминалами по common_name
+        matched_count = 0
+        for terminal in self.terminals:
+            # Ищем файл, содержащий common_name (или host_name, если common_name пуст)
+            target_name = terminal.common_name or terminal.host_name
+            matched_file = None
+            for cert_filename in cert_files:
+                if target_name.lower() in cert_filename.lower():
+                    matched_file = cert_filename
+                    break
+
+            if matched_file:
+                full_cert_path = os.path.join(folder_path, matched_file)
+                self.terminal_cert_mapping[terminal.device_id] = full_cert_path
+                matched_count += 1
+                print(f"Matched certificate {matched_file} for terminal {terminal.device_id} (common_name: {target_name})")
+                # Обновляем таблицу, если виджет доступен
+                if self.terminal_table_widget:
+                    self.terminal_table_widget.update_user_cert_in_table(terminal, full_cert_path)
+            else:
+                print(f"No matching certificate found for terminal {terminal.device_id} (common_name: {target_name})")
+                # Убираем старое сопоставление, если есть
+                if terminal.device_id in self.terminal_cert_mapping:
+                    del self.terminal_cert_mapping[terminal.device_id]
+
+        print(f"Successfully matched {matched_count} certificates out of {len(self.terminals)} terminals.")
+    
+    
     def load_terminals_from_excel(self, file_path):
         df = pd.read_excel(file_path)
-
-        # Попробуем найти столбец 'Пин-код' или его возможные варианты
-        possible_pin_columns = ['Пин-код', 'Pin-code', 'Pin', 'PIN', 'pin_code', 'pin']
-        pin_col_name = None
-        for col in possible_pin_columns:
-            if col in df.columns:
-                pin_col_name = col
-                print(f"Found Pin-code column: {pin_col_name}")
-                break
-
-        if pin_col_name is None:
-            print("Warning: Could not find 'Пин-код' column in the Excel file. Using empty string as default.")
-            df['Пин-код'] = '' # Добавляем столбец с пустыми строками, если не найден
-            pin_col_name = 'Пин-код'
-
-        # Попробуем найти столбец 'Временная зона' или его возможные варианты
-        possible_tz_columns = ['Временная зона', 'Timezone', 'Time Zone', 'timezone', 'tz']
-        tz_col_name = None
-        for col in possible_tz_columns:
-            if col in df.columns:
-                tz_col_name = col
-                print(f"Found Timezone column: {tz_col_name}")
-                break
-
-        if tz_col_name is None:
-            print("Warning: Could not find 'Временная зона' column in the Excel file. Using 'Europe/Moscow' as default.")
-            df['Временная зона'] = 'Europe/Moscow' # Добавляем столбец со значением по умолчанию
-            tz_col_name = 'Временная зона'
-
-
         self.terminals = []
         for _, row in df.iterrows():
             terminal = TerminalInterface(
@@ -62,12 +77,12 @@ class TerminalManager(QObject):
                 primary_ip=row['IP № 1 (основной)'],
                 secondary_ip=row['IP № 2 (резервный)'],
                 local_ip=row['IP локальный'],
-                # Используем найденные названия столбцов
-                pin_code=row.get(pin_col_name, ''), # Используем .get() на случай, если столбца нет
-                timezone=row.get(tz_col_name, 'Europe/Moscow') # Используем .get() и значение по умолчанию
+                pin_code=row.get('Пин-код', ''), # Используем .get() для безопасного получения значения
+                timezone=row.get('Временная зона', '') # Используем .get() для безопасного получения значения
             )
+            print(terminal)
             self.terminals.append(terminal)
-
+    
     def apply_settings_to_terminals(self, terminals_with_rows, settings, tab_name):
         total_terminals = len(terminals_with_rows)
         completed_count = 0
@@ -85,11 +100,10 @@ class TerminalManager(QObject):
         # Wait for all threads to complete
         for thread in threads:
             thread.join()
-
             # Update progress after each thread completes
             completed_count += 1
             self.progress_updated.emit(completed_count, total_terminals)
-
+    
     def apply_settings_to_terminal(self, terminal, settings, row_index, tab_name, total_terminals):
         try:
             # Update status based on tab name
@@ -98,7 +112,11 @@ class TerminalManager(QObject):
 
             # Apply settings based on active tab
             success = False
-            if tab_name.lower() == "pipeline":
+            if tab_name.lower() == "registration_reset_password":
+                success = self.apply_reset_password_settings(terminal, settings, row_index)
+            elif tab_name.lower() == "registration_set_password":
+                success = self.apply_set_password_settings(terminal, settings, row_index)
+            elif tab_name.lower() == "pipeline":
                 success = self.apply_pipeline_settings(terminal, settings, row_index)
             elif tab_name.lower() == "tls":
                 success = self.apply_tls_settings(terminal, settings, row_index)
@@ -113,14 +131,9 @@ class TerminalManager(QObject):
             elif tab_name.lower() == "server cert":
                 success = self.apply_server_cert_settings(terminal, settings, row_index)
             elif tab_name.lower() == "client cert":
-                success = self.apply_client_cert_settings(terminal, settings, row_index) # settings не используются
+                success = self.apply_client_cert_settings(terminal, settings, row_index)
             elif tab_name.lower() == "datetime":
                 success = self.apply_datetime_settings(terminal, settings, row_index)
-            elif tab_name.lower() == "pin-code": # Обработка вкладки Pin-code
-                # success = self.apply_pin_code_settings(terminal, settings, row_index) # settings не используются
-                # Для кнопок в боковой панели, вызовы происходят напрямую из main_window
-                # Этот путь не используется при apply_settings
-                success = True
 
             # Update status to completed or error based on success
             if success:
@@ -129,26 +142,55 @@ class TerminalManager(QObject):
             else:
                 if self.terminal_table_widget:
                     self.terminal_table_widget.update_terminal_status(row_index, f"{tab_name} failed")
-
         except Exception as e:
             print(f"Error applying {tab_name} settings to terminal {terminal.device_id}: {e}")
             if self.terminal_table_widget:
                 self.terminal_table_widget.update_terminal_status(row_index, f"Error: {str(e)}")
+
+    def apply_reset_password_settings(self, terminal, settings, row_index):
+        """Применяет настройки сброса пароля через PIN."""
+        try:
+            # Вызываем метод интерфейса
+            success = terminal.reset_password_via_pin(terminal.pin_code)
+
+            return success
+        except Exception as e:
+            print(f"Error resetting password for terminal {terminal.device_id}: {e}")
+            return False
+
+    def apply_set_password_settings(self, terminal, settings, row_index):
+        """Применяет настройки установки пароля."""
+        # Логика установки пароля аналогична apply_pipeline_settings
+        try:
+            # Set password first
+            password_result = terminal.set_password()
+            time.sleep(1)  # Wait for password to be set
+            # Login
+            login_result = terminal.login()
+            # Check if login was successful
+            if login_result is None or 'access_token' not in login_result:
+                print(f"Login failed for terminal {terminal.device_id}")
+                return False
+            # Успешно установлен пароль
+            return True
+        except Exception as e:
+            print(f"Set password failed for terminal {terminal.device_id}: {e}")
+            return False
 
     def apply_pipeline_settings(self, terminal, settings, row_index):
         try:
             # Set password first
             password_result = terminal.set_password()
             time.sleep(1)  # Wait for password to be set
-
+            
             # Login
             login_result = terminal.login()
-
+            
             # Check if login was successful
             if login_result is None or 'access_token' not in login_result:
                 print(f"Login failed for terminal {terminal.device_id}")
                 return False
-
+            
             # Apply pipeline settings
             if settings.get('standby_logo_path') and settings.get('work_logo_path'):
                 success = terminal.set_pipeline_out_control_settings(
@@ -161,21 +203,21 @@ class TerminalManager(QObject):
         except Exception as e:
             print(f"Pipeline settings failed for terminal {terminal.device_id}: {e}")
             return False
-
+    
     def apply_tls_settings(self, terminal, settings, row_index):
         try:
             # Set password first
             password_result = terminal.set_password()
             time.sleep(1)  # Wait for password to be set
-
+            
             # Login
             login_result = terminal.login()
-
+            
             # Check if login was successful
             if login_result is None or 'access_token' not in login_result:
                 print(f"Login failed for terminal {terminal.device_id}")
                 return False
-
+            
             # Apply TLS settings
             success = True
             if settings.get('ebs_test_cert_path'):
@@ -186,7 +228,7 @@ class TerminalManager(QObject):
                 )
                 if result is None:
                     success = False
-
+            
             if settings.get('ebs_prod_cert_path'):
                 result = terminal.upload_crypto_tunnel_cert(
                     settings['ebs_prod_cert_path'],
@@ -195,7 +237,7 @@ class TerminalManager(QObject):
                 )
                 if result is None:
                     success = False
-
+            
             if success:
                 result = terminal.configure_crypto_tunnel(
                     stage=settings.get('tls_stage', 'prod'),
@@ -203,26 +245,26 @@ class TerminalManager(QObject):
                 )
                 if result is None:
                     success = False
-
+            
             return success
         except Exception as e:
             print(f"TLS settings failed for terminal {terminal.device_id}: {e}")
             return False
-
+    
     def apply_firmware_settings(self, terminal, settings, row_index):
         try:
             # Set password first
             password_result = terminal.set_password()
             time.sleep(1)  # Wait for password to be set
-
+            
             # Login
             login_result = terminal.login()
-
+            
             # Check if login was successful
             if login_result is None or 'access_token' not in login_result:
                 print(f"Login failed for terminal {terminal.device_id}")
                 return False
-
+            
             # Apply firmware update
             if settings.get('firmware_path'):
                 success = terminal.set_terminal_files(settings['firmware_path'])
@@ -232,21 +274,21 @@ class TerminalManager(QObject):
         except Exception as e:
             print(f"Firmware settings failed for terminal {terminal.device_id}: {e}")
             return False
-
+    
     def apply_openvpn_settings(self, terminal, settings, row_index):
         try:
             # Set password first
             password_result = terminal.set_password()
             time.sleep(1)  # Wait for password to be set
-
+            
             # Login
             login_result = terminal.login()
-
+            
             # Check if login was successful
             if login_result is None or 'access_token' not in login_result:
                 print(f"Login failed for terminal {terminal.device_id}")
                 return False
-
+            
             # Apply OpenVPN settings
             if settings.get('ip_addresses'):
                 addresses = [
@@ -260,25 +302,25 @@ class TerminalManager(QObject):
         except Exception as e:
             print(f"OpenVPN settings failed for terminal {terminal.device_id}: {e}")
             return False
-
+    
     def apply_crl_settings(self, terminal, settings, row_index):
         try:
             # Set password first
             password_result = terminal.set_password()
             time.sleep(1)  # Wait for password to be set
-
+            
             # Login
             login_result = terminal.login()
-
+            
             # Check if login was successful
             if login_result is None or 'access_token' not in login_result:
                 print(f"Login failed for terminal {terminal.device_id}")
                 return False
-
+            
             # Upload CRL
             if settings.get('crl_path'):
                 result = terminal.upload_openvpn_crl(settings['crl_path'])
-
+                
                 # Check if result indicates success
                 if result is None:
                     return False
@@ -307,27 +349,27 @@ class TerminalManager(QObject):
         except Exception as e:
             print(f"CRL settings failed for terminal {terminal.device_id}: {e}")
             return False
-
+    
     def apply_cert_request_settings(self, terminal, settings, row_index):
         try:
             # Set password first
             password_result = terminal.set_password()
             time.sleep(1)  # Wait for password to be set
-
+            
             # Login
             login_result = terminal.login()
-
+            
             # Check if login was successful
             if login_result is None or 'access_token' not in login_result:
                 print(f"Login failed for terminal {terminal.device_id}")
                 return False
-
+            
             # Generate certificate request with automatic folder creation
             if settings.get('output_folder'):
                 result = terminal.generate_openvpn_cert_request(
                     output_folder=settings['output_folder']
                 )
-
+                
                 # Check if result indicates success
                 if result is None:
                     print(f"Certificate request failed for terminal {terminal.device_id}: No response")
@@ -362,25 +404,25 @@ class TerminalManager(QObject):
         except Exception as e:
             print(f"Certificate request settings failed for terminal {terminal.device_id}: {e}")
             return False
-
+    
     def apply_server_cert_settings(self, terminal, settings, row_index):
         try:
             # Set password first
             password_result = terminal.set_password()
             time.sleep(1)  # Wait for password to be set
-
+            
             # Login
             login_result = terminal.login()
-
+            
             # Check if login was successful
             if login_result is None or 'access_token' not in login_result:
                 print(f"Login failed for terminal {terminal.device_id}")
                 return False
-
+            
             # Upload server certificate
             if settings.get('server_cert_path'):
                 result = terminal.upload_openvpn_cert(settings['server_cert_path'], is_ca=True)
-
+                
                 # Check if result indicates success
                 if result is None:
                     print(f"Server certificate upload failed for terminal {terminal.device_id}: No response")
@@ -411,69 +453,71 @@ class TerminalManager(QObject):
         except Exception as e:
             print(f"Server cert settings failed for terminal {terminal.device_id}: {e}")
             return False
-
-    def apply_client_cert_settings(self, terminal, settings, row_index): # settings больше не используются
+        
+    def apply_client_cert_settings(self, terminal, settings, row_index):
         try:
-            # Set password first
             password_result = terminal.set_password()
             time.sleep(1)  # Wait for password to be set
-
-            # Login
             login_result = terminal.login()
-
-            # Check if login was successful
             if login_result is None or 'access_token' not in login_result:
                 print(f"Login failed for terminal {terminal.device_id}")
                 return False
 
-            # Upload client certificate - теперь используем путь из объекта терминала
-            # Проверяем, установлен ли путь к сертификату для этого терминала
-            if hasattr(terminal, 'client_cert_path') and terminal.client_cert_path:
-                cert_file_path = terminal.client_cert_path
-                # Проверяем, существует ли файл
-                if os.path.exists(cert_file_path):
-                    result = terminal.upload_openvpn_cert(cert_file_path, is_ca=False)
-                    if result is not None:
-                        print(f"Client certificate uploaded successfully for {terminal.device_id} from {cert_file_path}")
-                        return True
-                    else:
-                        print(f"Client certificate upload failed for {terminal.device_id} from {cert_file_path}")
-                        return False
-                else:
-                    print(f"Client certificate file does not exist: {cert_file_path} for terminal {terminal.device_id}")
-                    # Это ошибка, файл не найден
-                    return False
+            # Upload client certificate (is_ca=False)
+            # Используем путь из сопоставления TerminalManager или атрибута терминала
+            cert_path = self.terminal_manager.get_terminal_cert_path(terminal.device_id)
+            if not cert_path and hasattr(terminal, 'user_cert_path') and terminal.user_cert_path:
+                cert_path = terminal.user_cert_path
+
+            if cert_path:
+                print(f"Uploading client certificate {cert_path} for terminal {terminal.device_id}")
+                result = terminal.upload_openvpn_cert(cert_path, is_ca=False) # is_ca=False для клиентского сертификата
+                return result is not None
             else:
-                print(f"No client certificate path set for terminal {terminal.device_id}, skipping upload.")
-                # Это не ошибка, просто нет сертификата для загрузки
+                print(f"No client certificate found for terminal {terminal.device_id}")
                 return True
         except Exception as e:
             print(f"Client cert settings failed for terminal {terminal.device_id}: {e}")
             return False
-
+    
     def apply_datetime_settings(self, terminal, settings, row_index):
         try:
+            # 1. Установка пароля и логин (как и раньше)
             password_result = terminal.set_password()
             time.sleep(1)
             login_result = terminal.login()
             if login_result is None or 'access_token' not in login_result:
                 print(f"Login failed for terminal {terminal.device_id}")
                 return False
+            from datetime import datetime
             utc_now = datetime.utcnow()
             formatted_datetime = utc_now.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
             result1 = terminal.set_datetime(formatted_datetime)
-
+            if result1 is None or ('status_code' in result1 and result1['status_code'] >= 400):
+                 print(f"Failed to set datetime for terminal {terminal.device_id}")
+                 return False
             result2 = terminal.set_datetime_settings(
-                timezone=settings.get('timezone', 'Europe/Moscow'),
+                timezone="Europe/Moscow", # Установка московской зоны
+                primary_ntp_server="",
+                secondary_ntp_server=""
+            )
+            if result2 is None or ('status_code' in result2 and result2['status_code'] >= 400):
+                 print(f"Failed to set Moscow timezone for terminal {terminal.device_id}")
+                 return False
+            timezone_to_set = terminal.timezone
+            result3 = terminal.set_datetime_settings(
+                timezone=timezone_to_set,
                 primary_ntp_server=settings.get('primary_ntp', ''),
                 secondary_ntp_server=settings.get('secondary_ntp', '')
             )
-
-            return (result1 is not None) and (result2 is not None)
+            if result3 is None or ('status_code' in result3 and result3['status_code'] >= 400):
+                 print(f"Failed to set table timezone for terminal {terminal.device_id}")
+                 return False
+            return True # Все шаги выполнены успешно
         except Exception as e:
             print(f"DateTime settings failed for terminal {terminal.device_id}: {e}")
             return False
-
+    
     def refresh_all_tokens(self):
         for terminal in self.terminals:
             try:
