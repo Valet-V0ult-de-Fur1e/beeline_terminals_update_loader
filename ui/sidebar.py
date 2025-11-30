@@ -86,9 +86,25 @@ class SidebarWidget(QWidget):
         self.set_password_btn = QPushButton("Set Password")
         self.set_password_btn.clicked.connect(self.on_set_password_clicked)
         layout.addWidget(self.set_password_btn)
+        
+        self.start_openvpn_btn = QPushButton("Start OpenVPN")
+        self.start_openvpn_btn.clicked.connect(self.on_start_openvpn_clicked)
+        layout.addWidget(self.start_openvpn_btn)
 
         layout.addStretch()
         return tab
+    
+    def on_start_openvpn_clicked(self):
+        """Обработчик кнопки 'Запустить OpenVPN'."""
+        # Получаем выбранные терминалы и их индексы строки из таблицы
+        if self.terminal_manager.terminal_table_widget:
+            selected_terminals_with_rows = self.terminal_manager.terminal_table_widget.get_selected_terminals()
+            if not selected_terminals_with_rows:
+                QMessageBox.warning(self, "Warning", "Please select terminals to start OpenVPN.")
+                return
+
+            # Отправляем сигнал с уникальным именем вкладки
+            self.apply_settings_signal.emit("openvpn_start")
 
     def on_reset_password_clicked(self):
         """Обработчик кнопки 'Сбросить пароль'."""

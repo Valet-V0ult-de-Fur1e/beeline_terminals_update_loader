@@ -131,7 +131,7 @@ class TerminalInterface:
     
     def set_password(self):
         try:
-            response = self._make_request("POST", "/set_password",
+            response = self._make_request("POST", "/security/password",
                                         json_data={"password": self.password})
             data = response.json()
             if 'access_token' in data.keys():
@@ -327,20 +327,12 @@ class TerminalInterface:
         print(f"Uploading OpenVPN certificate from {cert_file_path} (is_ca: {is_ca})")
         try:
             with open(cert_file_path, 'rb') as f:
-                if is_ca:
-                    response = self._make_request(
+                response = self._make_request(
                         "POST",
                         "/security/openvpn_cert",
                         headers=headers,
                         files={'file': f},
                         params={'is_ca': str(is_ca).lower()}
-                    )
-                else:
-                    response = self._make_request(
-                        "POST",
-                        "/security/openvpn_client_cert",
-                        headers=headers,
-                        files={'file': f}
                     )
                 self._safe_json_response(response, "OpenVPN certificate upload")
                 return response.json()

@@ -134,6 +134,8 @@ class TerminalManager(QObject):
                 success = self.apply_client_cert_settings(terminal, settings, row_index)
             elif tab_name.lower() == "datetime":
                 success = self.apply_datetime_settings(terminal, settings, row_index)
+            elif tab_name.lower() == "openvpn_start":
+                success = self.open_vpn_start(terminal, settings, row_index)
 
             # Update status to completed or error based on success
             if success:
@@ -152,10 +154,18 @@ class TerminalManager(QObject):
         try:
             # Вызываем метод интерфейса
             success = terminal.reset_password_via_pin(terminal.pin_code)
-
             return success
         except Exception as e:
             print(f"Error resetting password for terminal {terminal.device_id}: {e}")
+            return False
+    
+    def open_vpn_start(self, terminal, settings, row_index):
+        try:
+            # Вызываем метод интерфейса
+            success = terminal.start_openvpn()
+            return success
+        except Exception as e:
+            print(f"Error start open vpn for terminal {terminal.device_id}: {e}")
             return False
 
     def apply_set_password_settings(self, terminal, settings, row_index):
@@ -465,7 +475,9 @@ class TerminalManager(QObject):
 
             # Upload client certificate (is_ca=False)
             # Используем путь из сопоставления TerminalManager или атрибута терминала
-            cert_path = self.terminal_manager.get_terminal_cert_path(terminal.device_id)
+            cert_path = self.get_terminal_cert_path(terminal.device_id)
+            cert_path = os.path.normpath(cert_path)
+            cert_path = cert_path.replace(os.path.sep, '/')
             if not cert_path and hasattr(terminal, 'user_cert_path') and terminal.user_cert_path:
                 cert_path = terminal.user_cert_path
 
